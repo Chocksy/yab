@@ -26,7 +26,8 @@ extension ChromiumPage {
         return { focus: document.hasFocus(), leaf: isLeaf };
         """
         var focused: [PageFrame] = [], held: [PageFrame] = []
-        for frame in frames where !frame.isMain {
+        // An extension's own window is never run in: focus there is unknown.
+        for frame in frames where !frame.isMain && !AgentSecrets.walledOff(frame) {
             guard let row = (try? await call(leaf, in: .agent, frame: frame, gesture: false)) as? [String: Any] else { return .unknown }
             guard row["leaf"] as? Bool == true else { continue }
             held.append(frame)

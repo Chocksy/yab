@@ -32,6 +32,8 @@ enum AgentPage {
     /// what it returns: in the page, or in one of its frames.
     static func run(_ tab: Tab, _ body: String, _ arguments: [String: Any] = [:], frame: PageFrame? = nil, _ done: @escaping @MainActor (Result<Any?, Error>) -> Void) {
         let page = tab.page
+        // An extension's own window is left out of the page, never run in.
+        if let frame, AgentSecrets.walledOff(frame) { done(.failure(AgentSecrets.Refused(said: AgentSecrets.walledOffFrame))); return }
         let execute = {
             page.call(AgentSecrets.guardBody + body, arguments: arguments, in: .agent, frame: frame) { result in
                 MainActor.assumeIsolated {
@@ -91,6 +93,7 @@ enum AgentPage {
     static var framed: [ObjectIdentifier: [String: PageFrame]] = [:]
 
     static func heard(_ web: any PageHandle, _ frame: Frame) {
+        guard !AgentSecrets.walledOff(frame.info), !AgentSecrets.protected(URL(string: frame.href)) else { return }
         var list = frames[ObjectIdentifier(web), default: []]
         list.removeAll { $0.href == frame.href && $0.w == frame.w && $0.h == frame.h }
         list.append(frame)
@@ -121,7 +124,7 @@ enum AgentPage {
     static func discover(_ web: any PageHandle, _ done: @escaping @MainActor () -> Void) {
         web.childFrames { infos in
             let group = DispatchGroup()
-            for info in infos {
+            for info in infos where !AgentSecrets.walledOff(info) {
                 group.enter()
                 web.call("return { href: location.href, w: innerWidth, h: innerHeight }", in: .agent, frame: info) { result in
                     MainActor.assumeIsolated {
@@ -342,6 +345,10 @@ enum AgentPage {
         for marker in markers {
             guard let k = marker["k"] as? Int else { continue }
             let src = marker["src"] as? String ?? ""
+            if AgentSecrets.protected(URL(string: src)) {
+                trees[k] = "(an extension's own window, a password manager's or wallet's: left out)"
+                continue
+            }
             guard let info = frame(in: tab.page, src: src, w: marker["w"] as? Double ?? 0, h: marker["h"] as? Double ?? 0) else {
                 trees[k] = "(a frame from \(URL(string: src)?.host ?? "another site") that hasn't said it is there yet; take a new snapshot)"
                 continue
