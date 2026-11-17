@@ -322,8 +322,10 @@ enum AgentPage {
     /// A frame that hasn't said it is there is looked for first; in a tab
     /// of yours, where frames never say so, every time.
     private static func weave(_ tab: Tab, _ out: inout [String: Any], _ markers: [[String: Any]], _ done: @escaping @MainActor ([String: Any]) -> Void) {
+        // An extension's own window is never heard, so it can't make the
+        // others unknown (weaveKnown leaves it out).
         let unknown = markers.contains { marker in
-            frame(in: tab.page, src: marker["src"] as? String ?? "", w: marker["w"] as? Double ?? 0, h: marker["h"] as? Double ?? 0) == nil
+            !AgentSecrets.protected(URL(string: marker["src"] as? String ?? "")) && frame(in: tab.page, src: marker["src"] as? String ?? "", w: marker["w"] as? Double ?? 0, h: marker["h"] as? Double ?? 0) == nil
         }
         guard unknown || !tab.bench else { weaveKnown(tab, &out, markers, done); return }
         let held = out

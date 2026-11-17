@@ -35,7 +35,11 @@ struct AgentSecretsTests {
     @Test nonisolated func onlyPixelsAndUnaimedInputNeedSight() {
         for (verb, request) in [("press", [:]), ("agent-pdf", [:]),
                                 ("act", ["action": "click", "x": 10.0, "y": 10.0]), ("act", ["action": "drag"]),
-                                ("act", ["action": "type", "text": "x"]), ("act", [:])] as [(String, [String: Any])] {
+                                ("act", ["action": "type", "text": "x"]), ("act", [:]),
+                                // Real pointer moves at a point, and Enter
+                                // to whatever has focus, even by ref.
+                                ("act", ["action": "drag", "ref": "e4", "to": "e9"]), ("act", ["action": "hover", "ref": "e4"]),
+                                ("act", ["action": "type", "ref": "e4", "text": "x", "submit": true])] as [(String, [String: Any])] {
             #expect(AgentSecrets.reach(verb, request) == .sight, "\(verb) \(request)")
         }
         for (verb, request) in [("snapshot", [:]), ("agent-eval", [:]), ("settle", [:]),

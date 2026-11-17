@@ -29,15 +29,20 @@ enum AgentSecrets {
     enum Reach { case document, sight }
 
     /// The reach of an agent's call through the bench: a saved copy of the
-    /// page, keys, and a click, drag or typing with no ref need sight.
-    /// Screenshots ask for it themselves (AgentScreenshot).
+    /// page, keys, a click or typing with no ref, Enter after typing, and a
+    /// drag or hover, real pointer moves at a point even by ref, need sight.
+    /// A click by ref covered by something falls back to a script click on
+    /// the element (AgentPage.act). Screenshots ask for sight themselves
+    /// (AgentScreenshot).
     nonisolated static func reach(_ verb: String, _ request: [String: Any]) -> Reach {
         switch verb {
         case "press", "agent-pdf": return .sight
         case "act":
             let ref = request["ref"] as? String ?? ""
             let action = request["action"] as? String ?? "click"
-            return ref.isEmpty && ["click", "drag", "type"].contains(action) ? .sight : .document
+            if ["drag", "hover"].contains(action) { return .sight }
+            if action == "type", request["submit"] as? Bool == true { return .sight }
+            return ref.isEmpty && ["click", "type"].contains(action) ? .sight : .document
         default: return .document
         }
     }
@@ -196,9 +201,8 @@ enum AgentSecrets {
             let frames = await withCheckedContinuation { continuation in
                 page.childFrames { continuation.resume(returning: $0) }
             }
-            let walled = frames.filter { protected($0.url) }
-            if !walled.isEmpty, reach == .sight { return refuse("extension frame", "extension frame") }
-            for frame in [nil] + frames.filter({ !protected($0.url) }).map({ Optional($0) }) {
+            if reach == .sight, frames.contains(where: walledOff) { return refuse("extension frame", "extension frame") }
+            for frame in [nil] + frames.filter({ !walledOff($0) }).map({ Optional($0) }) {
                 if let reason = await probe(frame) { return refuse(reason, reason) }
             }
             return true
@@ -217,7 +221,7 @@ enum AgentSecrets {
             for frame in frames {
                 let origin = URL(string: frame.origin.scheme + "://" + frame.origin.host)
                 let pdfViewer = builtInPDFViewer(frame.url) && builtInPDFViewer(origin)
-                guard pdfViewer || (!protected(frame.url) && !protected(origin)) else {
+                guard !walledOff(frame) else {
                     if frame.isMain { return refuse("extension page", "extension page") }
                     if reach == .sight { return refuse("extension frame", "extension frame") }
                     continue
