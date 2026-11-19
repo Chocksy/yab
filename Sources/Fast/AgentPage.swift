@@ -160,6 +160,33 @@ enum AgentPage {
     return { x, y };
     """
 
+    /// Whether a real click at a point of the top page lands on what a ref
+    /// names, or on the frame that holds it. A frame's own hit test can't
+    /// see what the top page draws over it: an extension's window (a
+    /// password manager's list) over a page's frame took a click by ref
+    /// that way. Anything else in the way is clicked by script instead.
+    static let landing = """
+    const S = globalThis.__yab;
+    let want = k >= 0 ? S && S.frames && S.frames.get(k) : S && S.refs && S.refs.get(ref);
+    if (!want || !want.isConnected) return false;
+    for (let w = want.ownerDocument.defaultView; w && w.frameElement; w = w.parent) want = w.frameElement;
+    let h = document.elementFromPoint(x, y);
+    while (h && h.shadowRoot) { const inner = h.shadowRoot.elementFromPoint(x, y); if (!inner || inner === h) break; h = inner; }
+    for (let n = h; n; n = n.parentNode || n.host) if (n === want) return true;
+    // A label over its own input, the way custom checkboxes are drawn.
+    const l = h && h.closest && h.closest('label');
+    return !!(l && (l.control === want || l.contains(want)));
+    """
+
+    /// Whether a real click by `ref` at `point`, in the top page's CSS
+    /// pixels, lands where it should; when that can't be told, it doesn't.
+    static func lands(_ tab: Tab, ref: String, at point: CGPoint, _ done: @escaping @MainActor (Bool) -> Void) {
+        let k = locate(tab, ref).marker ?? -1
+        run(tab, landing, ["ref": ref, "k": k, "x": Double(point.x), "y": Double(point.y)]) { result in
+            if case .success(let value) = result, let clear = value as? Bool { done(clear) } else { done(false) }
+        }
+    }
+
     // MARK: - what the page asked
 
     /// alert, confirm and prompt in an agent's own tab: the agent answers
@@ -924,6 +951,9 @@ enum AgentPage {
       if (p.w === 0) return { error: ref + ' has no size on the page' };
       return { x: p.x, y: p.y, w: p.w, h: p.h };
     }
+    // A click on the element itself, when a real one would land on
+    // something over it (AgentPage.landing).
+    if (action === 'script') { scriptClick(); return { done: 'script', covered: true }; }
     if (action === 'confirm') {
       if (S.clicked) return { done: 'mouse' };
       scriptClick(); return { done: 'script', lost: true };

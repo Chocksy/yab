@@ -23,7 +23,7 @@ struct AgentSecretsExtensionFrameTests {
         }
     }
 
-    private static func world() async throws -> World {
+    private static func world(frameStyle: String = "") async throws -> World {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("yab-extension-frame-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -39,6 +39,7 @@ struct AgentSecretsExtensionFrameTests {
         const frame = document.createElement('iframe');
         frame.id = 'vault';
         frame.src = browser.runtime.getURL('frame.html');
+        frame.style.cssText = '\(frameStyle)';
         document.body.append(frame);
         """
         try Data(content.utf8).write(to: folder.appendingPathComponent("content.js"))
@@ -61,11 +62,10 @@ struct AgentSecretsExtensionFrameTests {
         return World(folder: folder, extensions: extensions, context: context, web: web, loaded: loaded)
     }
 
-    private static func load(_ world: World) async {
+    private static func load(_ world: World, _ html: String = "<h1>Sign in</h1><input id=user><button id=go>Go</button>") async {
         await withCheckedContinuation { go in
             world.loaded.done = go
-            world.web.loadHTMLString("<h1>Sign in</h1><input id=user><button id=go>Go</button>",
-                                     baseURL: URL(string: "https://example.test/login"))
+            world.web.loadHTMLString(html, baseURL: URL(string: "https://example.test/login"))
         }
     }
 
@@ -140,5 +140,37 @@ struct AgentSecretsExtensionFrameTests {
             }
         }
         #expect(refused == AgentSecrets.walledOffFrame)
+    }
+
+    @Test func aRealClickByRefNeverLandsInTheExtensionsWindowOverAPagesFrame() async throws {
+        // The extension's list drawn over a frame of the page's own, the
+        // way a password manager's suggestions open under a field.
+        let world = try await Self.world(frameStyle: "position:fixed;left:0;top:0;width:400px;height:300px;border:0;z-index:2147483647")
+        defer { world.close() }
+        await Self.load(world, """
+        <iframe id=inner style="position:absolute;left:0;top:0;width:300px;height:200px;border:0"
+          srcdoc="<style>body{margin:0}</style><button id=pay style='width:200px;height:100px'>Pay</button>"></iframe>
+        """)
+        _ = try #require(await Self.vault(world.web))
+        // The ref, as a snapshot keeps it: the button in the page's frame.
+        let held = try await world.web.call("""
+        const inner = document.getElementById('inner');
+        for (let i = 0; i < 100 && !(inner.contentDocument && inner.contentDocument.getElementById('pay')); i++) await new Promise(r => setTimeout(r, 25));
+        const pay = inner.contentDocument.getElementById('pay');
+        globalThis.__yab ||= {};
+        globalThis.__yab.refs = new Map([['e1', pay]]);
+        // The frame's own hit test can't see the list over it.
+        return pay.ownerDocument.elementFromPoint(50, 50) === pay;
+        """, in: .agent) as? Bool
+        try #require(held == true, "In its own frame the button looks uncovered")
+        func lands() async throws -> Bool? {
+            try await world.web.call(AgentPage.landing, arguments: ["ref": "e1", "k": -1, "x": 50.0, "y": 50.0], in: .agent) as? Bool
+        }
+        // The top page sees the extension's window there: no real click.
+        #expect(try await lands() == false)
+        // Once the window closes, the point lands on the page's frame again.
+        _ = try await world.web.call("document.getElementById('vault').remove(); return true;", in: .agent)
+        try #require(await Self.closed(world.web))
+        #expect(try await lands() == true)
     }
 }
