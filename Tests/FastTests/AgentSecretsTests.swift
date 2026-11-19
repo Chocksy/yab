@@ -34,6 +34,9 @@ struct AgentSecretsTests {
 
     @Test nonisolated func onlyPixelsAndUnaimedInputNeedSight() {
         for (verb, request) in [("press", [:]), ("agent-pdf", [:]),
+                                // A script can reach the frame element and
+                                // postMessage to it, whatever it reads.
+                                ("agent-eval", [:]), ("agent-eval-held", [:]),
                                 ("act", ["action": "click", "x": 10.0, "y": 10.0]), ("act", ["action": "drag"]),
                                 ("act", ["action": "type", "text": "x"]), ("act", [:]),
                                 // Real pointer moves at a point, and Enter
@@ -42,7 +45,7 @@ struct AgentSecretsTests {
                                 ("act", ["action": "type", "ref": "e4", "text": "x", "submit": true])] as [(String, [String: Any])] {
             #expect(AgentSecrets.reach(verb, request) == .sight, "\(verb) \(request)")
         }
-        for (verb, request) in [("snapshot", [:]), ("agent-eval", [:]), ("settle", [:]),
+        for (verb, request) in [("snapshot", [:]), ("settle", [:]),
                                 ("act", ["action": "click", "ref": "e4"]), ("act", ["action": "type", "ref": "f2e7"]),
                                 ("act", ["action": "scroll"])] as [(String, [String: Any])] {
             #expect(AgentSecrets.reach(verb, request) == .document, "\(verb) \(request)")

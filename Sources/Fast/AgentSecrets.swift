@@ -31,12 +31,14 @@ enum AgentSecrets {
     /// The reach of an agent's call through the bench: a saved copy of the
     /// page, keys, a click or typing with no ref, Enter after typing, and a
     /// drag or hover, real pointer moves at a point even by ref, need sight.
+    /// So does eval: its script runs at document reach, but can still find
+    /// the extension's frame element and postMessage to it.
     /// A click by ref covered by something falls back to a script click on
     /// the element (AgentPage.act). Screenshots ask for sight themselves
     /// (AgentScreenshot).
     nonisolated static func reach(_ verb: String, _ request: [String: Any]) -> Reach {
         switch verb {
-        case "press", "agent-pdf": return .sight
+        case "press", "agent-pdf", "agent-eval", "agent-eval-held": return .sight
         case "act":
             let ref = request["ref"] as? String ?? ""
             let action = request["action"] as? String ?? "click"
@@ -131,7 +133,7 @@ enum AgentSecrets {
 
     static func message(_ reason: String) -> String {
         if reason == "extension frame" {
-            return "Yab won't take a picture of this page, click at a point or press keys outside a ref while \(reasons[reason]!). Read the page and act on it by refs meanwhile; the rest works again once that window closes."
+            return "Yab won't take a picture of this page, run a script on it, click at a point or press keys outside a ref while \(reasons[reason]!). Read the page and act on it by refs meanwhile; the rest works again once that window closes."
         }
         return "Yab keeps agents off this page because \(reasons[reason] ?? reason). The person must handle it; continue after they leave this page."
     }
